@@ -1,0 +1,3 @@
+[submodule ".\\components\\tinyusb_git\\tinyusb"]
+	path = .\\components\\tinyusb_git\\tinyusb
+	url = https://github.com/nbarrios/tinyusb.git
