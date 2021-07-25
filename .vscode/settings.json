@@ -1,0 +1,15 @@
+{
+    "idf.adapterTargetName": "esp32s2",
+    "idf.openOcdConfigs": [
+        "interface/ftdi/esp32_devkitj_v1.cfg",
+        "target/esp32s2.cfg"
+    ],
+    "idf.portWin": "COM3",
+    "git.ignoreLimitWarning": true,
+    "files.associations": {
+        "dcd.h": "c",
+        "tusb_option.h": "c",
+        "periph_ctrl.h": "c",
+        "periph_defs.h": "c"
+    }
+}
