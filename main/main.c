@@ -13,6 +13,8 @@
 
 #include <stdint.h>
 #include "esp_log.h"
+#include "nvs_flash.h"
+#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "tinyusb.h"
@@ -20,10 +22,10 @@
 #include "math.h"
 #include "soc/usb_periph.h"
 #include "usb_audio_cb.h"
+#include "war_wifi.h"
+#include "war_espnow.h"
 
-#define CFG_TUSB_DEBUG 2
-
-static const char *TAG = "example";
+static const char *TAG = "WAR Main";
 
 //--------------------------------------------------------------------+
 // MACRO CONSTANT TYPEDEF PROTYPES
@@ -44,6 +46,14 @@ void main_task(void *pvParamters)
 
 void app_main(void)
 {
+    // Initialize NVS
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK( nvs_flash_erase() );
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK( ret );
+
     //Sine Wave 440HZ
     double delta = 1.0 / (double)current_sample_rate;
     double freq = 440.0;
@@ -52,13 +62,14 @@ void app_main(void)
         double val = 0.02 * sin(2.0 * M_PI * freq * (double)i * delta);
         sine_buffer[i] = (int16_t) round(val * (double) INT16_MAX);
     }
-    ESP_LOGI(TAG, "Audio EP IN Max: %u", CFG_TUD_AUDIO_FUNC_1_EP_SZ_IN);
 
     ESP_LOGI(TAG, "USB initialization");
     tinyusb_config_t tusb_cfg = {}; // the configuration using default values
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
-
     ESP_LOGI(TAG, "USB initialization DONE");
+
+    war_wifi_init();
+    ESP_ERROR_CHECK( espnow_init() );
 
     //xTaskCreate(main_task, "Main", 4096, NULL, 4, NULL);
 }
