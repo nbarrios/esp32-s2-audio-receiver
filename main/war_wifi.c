@@ -1,6 +1,7 @@
 #include "war_wifi.h"
 #include "esp_netif.h"
 #include "esp_now.h"
+#include "esp_private/wifi.h"
 
 void war_wifi_init() {
     ESP_ERROR_CHECK( esp_netif_init() );
@@ -9,5 +10,7 @@ void war_wifi_init() {
     ESP_ERROR_CHECK( esp_wifi_init(&cfg) );
     ESP_ERROR_CHECK( esp_wifi_set_storage(WIFI_STORAGE_RAM) );
     ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_STA) );
+    ESP_ERROR_CHECK( esp_wifi_config_espnow_rate(WIFI_IF_STA, WIFI_PHY_RATE_5M_S) );
     ESP_ERROR_CHECK( esp_wifi_start() );
+    ESP_ERROR_CHECK( esp_wifi_set_channel(6, WIFI_SECOND_CHAN_NONE) );
 }

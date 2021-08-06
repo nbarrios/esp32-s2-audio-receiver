@@ -53,6 +53,7 @@ int16_t  sine_buffer[SINE_SAMPLES];
 uint16_t sine_index = 0;
 uint16_t test_buffer_audio[CFG_TUD_AUDIO_FUNC_1_EP_SZ_IN / 2];
 uint16_t startVal = 0;
+ringbuf_i16_handle_t rbuf;
 
 //--------------------------------------------------------------------+
 // Device callbacks
@@ -367,13 +368,21 @@ bool tud_audio_tx_done_pre_load_cb(uint8_t rhport, uint8_t itf, uint8_t ep_in, u
     (void)ep_in;
     (void)cur_alt_setting;
 
-    for (int i = 0; i < current_sample_rate / 1000; i++) {
+/*     for (int i = 0; i < current_sample_rate / 1000; i++) {
         test_buffer_audio[i] = sine_buffer[sine_index];
         if (++sine_index >= SINE_SAMPLES) {
             sine_index = 0;
         }
+    } */
+    static int16_t copy_buf[48];
+    if (ringbuf_i16_size(rbuf) >= 48) {
+        for (int i = 0; i < 48; i++) {
+            copy_buf[i] = ringbuf_i16_read(rbuf);
+        }
+    } else {
+        memset(copy_buf, 0, sizeof(copy_buf));
     }
-    tud_audio_write((uint8_t *)test_buffer_audio, (current_sample_rate / 1000) * 2);
+    tud_audio_write((uint8_t *)copy_buf, sizeof(copy_buf));
 
     return true;
 }
