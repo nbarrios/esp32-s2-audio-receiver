@@ -103,17 +103,16 @@ void app_main(void)
         double val = 0.02 * sin(2.0 * M_PI * freq * (double)i * delta);
         sine_buffer[i] = (int16_t) round(val * (double) INT16_MAX);
     }
-    int16_t* backing_buffer = (int16_t*) malloc(1024 * sizeof(int16_t));
-    memset(backing_buffer, 0, 1024 * sizeof(int16_t));
-    rbuf = ringbuf_i16_init(backing_buffer, 1024);
+
 
     ESP_LOGI(TAG, "USB initialization");
     tinyusb_config_t tusb_cfg = {}; // the configuration using default values
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
     ESP_LOGI(TAG, "USB initialization DONE");
 
+    init_usb_audio_ringbuffer();
     war_wifi_init();
-    ESP_ERROR_CHECK( espnow_init(true, rbuf) );
+    ESP_ERROR_CHECK( espnow_init(true) );
 
     //xTaskCreate(main_task, "Main", 4096, NULL, 4, NULL);
 }

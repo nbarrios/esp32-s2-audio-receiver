@@ -1,6 +1,8 @@
 #include "usb_audio_cb.h"
 #include "tinyusb.h"
 #include "esp_log.h"
+#include "freertos/ringbuf.h"
+#include "war_espnow.h"
 
 static const char *TAG = "USB Audio";
 
@@ -53,7 +55,16 @@ int16_t  sine_buffer[SINE_SAMPLES];
 uint16_t sine_index = 0;
 uint16_t test_buffer_audio[CFG_TUD_AUDIO_FUNC_1_EP_SZ_IN / 2];
 uint16_t startVal = 0;
-ringbuf_i16_handle_t rbuf;
+RingbufHandle_t rbuf = NULL;
+
+const size_t audio_ringbuffer_len = 48 * 5 * sizeof(int16_t);
+
+void init_usb_audio_ringbuffer() {
+    rbuf = xRingbufferCreate(audio_ringbuffer_len, RINGBUF_TYPE_BYTEBUF);
+    if (rbuf == NULL) {
+        ESP_LOGE(TAG, "Failed to create ringbuffer");
+    }
+}
 
 //--------------------------------------------------------------------+
 // Device callbacks
@@ -119,7 +130,10 @@ bool tud_audio_set_itf_cb(uint8_t rhport, tusb_control_request_t const *p_reques
     uint8_t const itf = tu_u16_low(tu_le16toh(p_request->wIndex));
     uint8_t const alt = tu_u16_low(tu_le16toh(p_request->wValue));
 
-    ESP_LOGV(TAG, "Set interface %d alt %d\r\n", itf, alt);
+    ESP_LOGI(TAG, "Set interface %d alt %d\r\n", itf, alt);
+    if (itf == 1 && alt == 1) {
+        espnow_set_rbuf(rbuf); 
+    }
 
     return true;
 }
@@ -179,7 +193,7 @@ bool tud_audio_set_req_entity_cb(uint8_t rhport, tusb_control_request_t const *p
 // Invoked when audio class specific get request received for an EP
 bool tud_audio_get_req_ep_cb(uint8_t rhport, tusb_control_request_t const *p_request)
 {
-    ESP_LOGV(TAG, "Audio Get Req EP Callback");
+    ESP_LOGI(TAG, "Audio Get Req EP Callback");
     (void)rhport;
 
     // Page 91 in UAC2 specification
@@ -301,7 +315,7 @@ bool tud_audio_get_req_entity_cb(uint8_t rhport, tusb_control_request_t const *p
 {
     (void)rhport;
 
-    ESP_LOGV(TAG, "Audio Get Req Entity Callback");
+    ESP_LOGI(TAG, "Audio Get Req Entity Callback");
     audio_control_request_t *request = (audio_control_request_t *)p_request;
 
     // Page 91 in UAC2 specification
@@ -353,9 +367,21 @@ bool tud_audio_get_req_entity_cb(uint8_t rhport, tusb_control_request_t const *p
 
 bool tud_audio_set_itf_close_EP_cb(uint8_t rhport, tusb_control_request_t const *p_request)
 {
-    ESP_LOGV(TAG, "Audio Set ITF Close EP\n");
     (void)rhport;
-    (void)p_request;
+
+    uint8_t const itf = tu_u16_low(tu_le16toh(p_request->wIndex));
+    uint8_t const alt = tu_u16_low(tu_le16toh(p_request->wValue));
+
+    ESP_LOGI(TAG, "Audio Set ITF Close EP: %u, %u\n", itf, alt);
+
+    espnow_set_rbuf(NULL);
+    if (rbuf) {
+        size_t bytes_recv;
+        void* data = xRingbufferReceiveUpTo(rbuf, &bytes_recv, 0, audio_ringbuffer_len);
+        if (data) {
+            vRingbufferReturnItem(rbuf, data);
+        }
+    }
 
     return true;
 }
@@ -374,15 +400,15 @@ bool tud_audio_tx_done_pre_load_cb(uint8_t rhport, uint8_t itf, uint8_t ep_in, u
             sine_index = 0;
         }
     } */
-    static int16_t copy_buf[48];
-    if (ringbuf_i16_size(rbuf) >= 48) {
-        for (int i = 0; i < 48; i++) {
-            copy_buf[i] = ringbuf_i16_read(rbuf);
-        }
+    static int16_t copy_buf[48] = {0};
+    size_t bytes_recv;
+    uint8_t* data = xRingbufferReceiveUpTo(rbuf, &bytes_recv, portMAX_DELAY, 48 * sizeof(int16_t));
+    if (data != NULL) {
+        tud_audio_write(data, bytes_recv);
+        vRingbufferReturnItem(rbuf, data);
     } else {
-        memset(copy_buf, 0, sizeof(copy_buf));
+        tud_audio_write((uint8_t*) copy_buf, sizeof(copy_buf));
     }
-    tud_audio_write((uint8_t *)copy_buf, sizeof(copy_buf));
 
     return true;
 }

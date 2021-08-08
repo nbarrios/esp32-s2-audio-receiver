@@ -12,7 +12,7 @@
 static const char *TAG = "ESP-NOW";
 
 bool is_receiver = false;
-ringbuf_i16_handle_t espnow_data_rbuf = NULL;
+RingbufHandle_t espnow_data_rbuf = NULL;
 
 int64_t tx_prev_timer = 0;
 uint32_t tx_byte_count = 0;
@@ -30,12 +30,9 @@ uint16_t espnow_seq[ESPNOW_DATA_MAX] = {0, 0};
 
 espnow_send_param_t* send_param;
 
-esp_err_t espnow_init(bool receiver, ringbuf_i16_handle_t data_rbuf) {
+esp_err_t espnow_init(bool receiver) {
     is_receiver = receiver;
-    if (is_receiver) {
-        assert(data_rbuf != NULL);
-        espnow_data_rbuf = data_rbuf;
-    }
+    espnow_data_rbuf = NULL;
 
     espnow_queue = xQueueCreate(ESPNOW_QUEUE_SIZE, sizeof(espnow_event_t));
     if (espnow_queue == NULL) {
@@ -105,6 +102,10 @@ void espnow_deinit(espnow_send_param_t* send_param) {
     esp_now_deinit();
 }
 
+void espnow_set_rbuf(RingbufHandle_t rbuf) {
+    espnow_data_rbuf = rbuf;
+}
+
 void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status) {
     espnow_event_t evt;
     espnow_event_send_cb_t* send_cb = &evt.info.send_cb;
@@ -139,7 +140,7 @@ void espnow_recv_cb(const uint8_t *mac_addr, const uint8_t *data, int len) {
     memcpy(recv_cb->data, data, len);
     recv_cb->data_len = len;
     if (xQueueSend(espnow_queue, &evt, ESPNOW_MAXDELAY) != pdTRUE) {
-        //ESP_LOGW(TAG, "Send receive queue fail.");
+        ESP_LOGI(TAG, "Send receive queue fail.");
         free(recv_cb->data);
     }
 }
@@ -251,12 +252,9 @@ void espnow_tick() {
                         free(peer);
                     } */
 
-                    if (is_receiver) {
-                        if (ringbuf_i16_full(espnow_data_rbuf)) {
-                            ESP_LOGI(TAG, "Data buffer full. Resetting.");
-                            ringbuf_i16_reset(espnow_data_rbuf);
-                        } else {
-                            ringbuf_i16_write_buf(espnow_data_rbuf, (int16_t*) data->payload, ESPNOW_SEND_LEN / sizeof(int16_t));
+                    if (is_receiver && espnow_data_rbuf != NULL) {
+                        if (xRingbufferSend(espnow_data_rbuf, data->payload, ESPNOW_SEND_LEN, portMAX_DELAY) != pdTRUE) {
+                            ESP_LOGE(TAG, "Failed to send to ringbuffer");
                         }
                     }
                     seq_counter++;
