@@ -52,7 +52,7 @@ esp_err_t espnow_init(bool receiver) {
 
     ESP_ERROR_CHECK( esp_now_set_pmk((uint8_t*)ESPNOW_PMK) );
 
-    uint8_t* peer_mac = is_receiver ? transmitter_mac : receiver_mac;
+    uint8_t* peer_mac = broadcast_mac; //is_receiver ? transmitter_mac : receiver_mac;
     ESP_LOGI(TAG, "Adding peer: "MACSTR, MAC2STR(peer_mac));
     esp_now_peer_info_t* peer = malloc(sizeof(esp_now_peer_info_t));
     if (peer == NULL) {
@@ -263,6 +263,7 @@ void espnow_tick() {
                         if (recv_seq < last_recv_seq) {
                             ESP_LOGI(TAG, "Received stale packet: %u", recv_seq);
                         }
+                        ESP_LOGI(TAG, "Missing packet #: %u, Last packet received: %u", recv_seq, last_recv_seq);
                     }
                     if (seq_counter > 5000) {
                         ESP_LOGI(TAG, "Missed %f%% of packets", ((float)missed_seq_count/(float)seq_counter) * 100.f);
