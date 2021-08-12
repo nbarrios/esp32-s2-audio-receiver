@@ -57,13 +57,15 @@ uint16_t test_buffer_audio[CFG_TUD_AUDIO_FUNC_1_EP_SZ_IN / 2];
 uint16_t startVal = 0;
 RingbufHandle_t rbuf = NULL;
 
-const size_t audio_ringbuffer_len = 48 * 5 * sizeof(int16_t);
+const size_t audio_ringbuffer_len = 48 * 10 * sizeof(int16_t);
 
 void init_usb_audio_ringbuffer() {
     rbuf = xRingbufferCreate(audio_ringbuffer_len, RINGBUF_TYPE_BYTEBUF);
     if (rbuf == NULL) {
         ESP_LOGE(TAG, "Failed to create ringbuffer");
+        return;
     }
+    espnow_set_rbuf(rbuf);
 }
 
 //--------------------------------------------------------------------+
@@ -104,7 +106,7 @@ void tud_resume_cb(void)
 // Invoked when audio class specific set request received for an EP
 bool tud_audio_set_req_ep_cb(uint8_t rhport, tusb_control_request_t const *p_request, uint8_t *pBuff)
 {
-    ESP_LOGI(TAG, "Audio Set Req EP Callback");
+    ESP_LOGV(TAG, "Audio Set Req EP Callback");
     (void)rhport;
     (void)pBuff;
 
@@ -132,7 +134,7 @@ bool tud_audio_set_itf_cb(uint8_t rhport, tusb_control_request_t const *p_reques
 
     ESP_LOGI(TAG, "Set interface %d alt %d\r\n", itf, alt);
     if (itf == 1 && alt == 1) {
-        espnow_set_rbuf(rbuf); 
+        espnow_set_rbuf_state(ESPNOW_RBUF_ACTIVE);
     }
 
     return true;
@@ -152,7 +154,7 @@ static bool tud_audio_feature_unit_set_request(uint8_t rhport, audio_control_req
 
         mute[request->bChannelNumber] = ((audio_control_cur_1_t *)buf)->bCur;
 
-        ESP_LOGI(TAG, "Set channel %d Mute: %d\r\n", request->bChannelNumber, mute[request->bChannelNumber]);
+        ESP_LOGV(TAG, "Set channel %d Mute: %d\r\n", request->bChannelNumber, mute[request->bChannelNumber]);
 
         return true;
     }
@@ -162,13 +164,13 @@ static bool tud_audio_feature_unit_set_request(uint8_t rhport, audio_control_req
 
         volume[request->bChannelNumber] = ((audio_control_cur_2_t const *)buf)->bCur;
 
-        ESP_LOGI(TAG, "Set channel %d volume: %d dB\r\n", request->bChannelNumber, volume[request->bChannelNumber] / 256);
+        ESP_LOGV(TAG, "Set channel %d volume: %d dB\r\n", request->bChannelNumber, volume[request->bChannelNumber] / 256);
 
         return true;
     }
     else
     {
-        ESP_LOGI(TAG, "Feature unit set request not supported, entity = %u, selector = %u, request = %u\r\n",
+        ESP_LOGV(TAG, "Feature unit set request not supported, entity = %u, selector = %u, request = %u\r\n",
                  request->bEntityID, request->bControlSelector, request->bRequest);
         return false;
     }
@@ -193,7 +195,7 @@ bool tud_audio_set_req_entity_cb(uint8_t rhport, tusb_control_request_t const *p
 // Invoked when audio class specific get request received for an EP
 bool tud_audio_get_req_ep_cb(uint8_t rhport, tusb_control_request_t const *p_request)
 {
-    ESP_LOGI(TAG, "Audio Get Req EP Callback");
+    ESP_LOGV(TAG, "Audio Get Req EP Callback");
     (void)rhport;
 
     // Page 91 in UAC2 specification
@@ -213,7 +215,7 @@ bool tud_audio_get_req_ep_cb(uint8_t rhport, tusb_control_request_t const *p_req
 // Invoked when audio class specific get request received for an interface
 bool tud_audio_get_req_itf_cb(uint8_t rhport, tusb_control_request_t const *p_request)
 {
-    ESP_LOGI(TAG, "Audio Get Req ITF Callback");
+    ESP_LOGV(TAG, "Audio Get Req ITF Callback");
     (void)rhport;
 
     // Page 91 in UAC2 specification
@@ -315,7 +317,7 @@ bool tud_audio_get_req_entity_cb(uint8_t rhport, tusb_control_request_t const *p
 {
     (void)rhport;
 
-    ESP_LOGI(TAG, "Audio Get Req Entity Callback");
+    ESP_LOGV(TAG, "Audio Get Req Entity Callback");
     audio_control_request_t *request = (audio_control_request_t *)p_request;
 
     // Page 91 in UAC2 specification
@@ -372,9 +374,9 @@ bool tud_audio_set_itf_close_EP_cb(uint8_t rhport, tusb_control_request_t const 
     uint8_t const itf = tu_u16_low(tu_le16toh(p_request->wIndex));
     uint8_t const alt = tu_u16_low(tu_le16toh(p_request->wValue));
 
-    ESP_LOGI(TAG, "Audio Set ITF Close EP: %u, %u\n", itf, alt);
+    ESP_LOGV(TAG, "Audio Set ITF Close EP: %u, %u\n", itf, alt);
 
-    espnow_set_rbuf(NULL);
+    espnow_set_rbuf_state(ESPNOW_RBUF_INACTIVE);
     if (rbuf) {
         size_t bytes_recv;
         void* data = xRingbufferReceiveUpTo(rbuf, &bytes_recv, 0, audio_ringbuffer_len);
@@ -394,15 +396,9 @@ bool tud_audio_tx_done_pre_load_cb(uint8_t rhport, uint8_t itf, uint8_t ep_in, u
     (void)ep_in;
     (void)cur_alt_setting;
 
-/*     for (int i = 0; i < current_sample_rate / 1000; i++) {
-        test_buffer_audio[i] = sine_buffer[sine_index];
-        if (++sine_index >= SINE_SAMPLES) {
-            sine_index = 0;
-        }
-    } */
     static int16_t copy_buf[48] = {0};
     size_t bytes_recv;
-    uint8_t* data = xRingbufferReceiveUpTo(rbuf, &bytes_recv, portMAX_DELAY, 48 * sizeof(int16_t));
+    uint8_t* data = xRingbufferReceiveUpTo(rbuf, &bytes_recv, 0, 48 * sizeof(int16_t));
     if (data != NULL) {
         tud_audio_write(data, bytes_recv);
         vRingbufferReturnItem(rbuf, data);
