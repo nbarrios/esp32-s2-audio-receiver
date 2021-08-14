@@ -57,7 +57,9 @@ uint16_t test_buffer_audio[CFG_TUD_AUDIO_FUNC_1_EP_SZ_IN / 2];
 uint16_t startVal = 0;
 RingbufHandle_t rbuf = NULL;
 
-const size_t audio_ringbuffer_len = 48 * 10 * sizeof(int16_t);
+const size_t audio_ringbuffer_len = 48 * 40 * sizeof(int16_t);
+
+tu_fifo_t* ep_in_fifo = NULL;
 
 void init_usb_audio_ringbuffer() {
     rbuf = xRingbufferCreate(audio_ringbuffer_len, RINGBUF_TYPE_BYTEBUF);
@@ -65,7 +67,7 @@ void init_usb_audio_ringbuffer() {
         ESP_LOGE(TAG, "Failed to create ringbuffer");
         return;
     }
-    espnow_set_rbuf(rbuf);
+    espnow_set_rbuf(rbuf, audio_ringbuffer_len);
 }
 
 //--------------------------------------------------------------------+
@@ -76,12 +78,14 @@ void init_usb_audio_ringbuffer() {
 void tud_mount_cb(void)
 {
     blink_interval_ms = BLINK_MOUNTED;
+    ep_in_fifo = tud_audio_get_ep_in_ff();
 }
 
 // Invoked when device is unmounted
 void tud_umount_cb(void)
 {
     blink_interval_ms = BLINK_NOT_MOUNTED;
+    ep_in_fifo = NULL;
 }
 
 // Invoked when usb bus is suspended
@@ -396,14 +400,17 @@ bool tud_audio_tx_done_pre_load_cb(uint8_t rhport, uint8_t itf, uint8_t ep_in, u
     (void)ep_in;
     (void)cur_alt_setting;
 
-    static int16_t copy_buf[48] = {0};
-    size_t bytes_recv;
-    uint8_t* data = xRingbufferReceiveUpTo(rbuf, &bytes_recv, 0, 48 * sizeof(int16_t));
-    if (data != NULL) {
-        tud_audio_write(data, bytes_recv);
-        vRingbufferReturnItem(rbuf, data);
-    } else {
-        tud_audio_write((uint8_t*) copy_buf, sizeof(copy_buf));
+    if (ep_in_fifo) {
+        size_t remaining = tu_fifo_remaining(ep_in_fifo);
+
+        if (remaining > 0) {
+            size_t bytes_recv;
+            uint8_t* data = xRingbufferReceiveUpTo(rbuf, &bytes_recv, 0, remaining);
+            if (data != NULL) {
+                tud_audio_write(data, bytes_recv);
+                vRingbufferReturnItem(rbuf, data);
+            }
+        }
     }
 
     return true;
