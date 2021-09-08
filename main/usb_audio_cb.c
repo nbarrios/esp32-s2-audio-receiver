@@ -57,7 +57,7 @@ uint16_t test_buffer_audio[CFG_TUD_AUDIO_FUNC_1_EP_SZ_IN / 2];
 uint16_t startVal = 0;
 RingbufHandle_t rbuf = NULL;
 
-const size_t audio_ringbuffer_len = 48 * 40 * sizeof(int16_t);
+const size_t audio_ringbuffer_len = 48 * 15 * sizeof(int16_t);
 
 tu_fifo_t* ep_in_fifo = NULL;
 
@@ -400,16 +400,46 @@ bool tud_audio_tx_done_pre_load_cb(uint8_t rhport, uint8_t itf, uint8_t ep_in, u
     (void)ep_in;
     (void)cur_alt_setting;
 
-    if (ep_in_fifo) {
-        size_t remaining = tu_fifo_remaining(ep_in_fifo);
+    static bool filling = false;
+    static bool fade_in_next = false;
+    static int16_t last_ms[48];
+    static int16_t fade_ms[48];
+    static int16_t last_len;
 
-        if (remaining > 0) {
-            size_t bytes_recv;
-            uint8_t* data = xRingbufferReceiveUpTo(rbuf, &bytes_recv, 0, remaining);
-            if (data != NULL) {
-                tud_audio_write(data, bytes_recv);
-                vRingbufferReturnItem(rbuf, data);
+    if (!filling) {
+        size_t bytes_recv;
+        uint8_t* data = xRingbufferReceiveUpTo(rbuf, &bytes_recv, 0, 48 * sizeof(int16_t));
+        if (data != NULL) {
+            if (fade_in_next) {
+                fade_in_next = false;
+                int16_t* word = (int16_t*) data;
+                float mod = 0.025f;
+                for (int i = 0; i < bytes_recv / sizeof(int16_t); i++) {
+                    word[i] *= mod;
+                    mod = TU_MIN(mod + 0.025f, 1.f);
+                }
             }
+            tud_audio_write(data, bytes_recv);
+            memcpy(last_ms, data, bytes_recv);
+            last_len = bytes_recv / sizeof(int16_t);
+            vRingbufferReturnItem(rbuf, data);
+        } else {
+            debug.missed_audio_cb++;
+            filling = true;
+            float mod = 1.f;
+            for (int i = 0; i < 48; i++) {
+                fade_ms[i] = last_ms[last_len - 1] * mod;
+                mod -= 0.025f;
+                mod = TU_MAX(mod, 0.f);
+            }
+            tud_audio_write(fade_ms, sizeof(fade_ms));
+        }
+    } else {
+        const size_t threshold = 48 * sizeof(int16_t) * 8;
+        size_t current = audio_ringbuffer_len - xRingbufferGetCurFreeSize(rbuf);
+        if (current >= threshold) {
+            filling = false;
+            fade_in_next = true;
         }
     }
 
