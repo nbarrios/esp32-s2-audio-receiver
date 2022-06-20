@@ -6,6 +6,8 @@
 #include "esp_crc.h"
 #include "esp_log.h"
 
+#define ESPNOW_LOGGING 0
+
 #define ESPNOW_PMK "8u3NU3cdMdnxmnUN"
 #define ESPNOW_LMK "ZbtUUgbhnfo6WyTQ"
 #define ESPNOW_CHANNEL 8
@@ -90,11 +92,13 @@ esp_err_t espnow_init(bool receiver) {
   }
   memcpy(send_param->dest_mac, peer_mac, ESP_NOW_ETH_ALEN);
 
+#if ESPNOW_LOGGING
   debug.time = esp_timer_get_time();
   debug.interval = 10 * 1000000;
   debug.last_micro = debug.time;
+#endif
 
-  xTaskCreatePinnedToCore(espnow_task, "ESP-Now Task", 2 * 1024, NULL, 4, NULL,
+  xTaskCreatePinnedToCore(espnow_task, "ESP-Now Task", 3 * 1024, NULL, 4, NULL,
                           1);
 
   return ESP_OK;
@@ -152,7 +156,7 @@ void espnow_recv_cb(const uint8_t *mac_addr, const uint8_t *data, int len) {
   memcpy(recv_cb->data, data, len);
   recv_cb->data_len = len;
   if (xQueueSend(espnow_queue, &evt, ESPNOW_MAXDELAY) != pdTRUE) {
-    ESP_LOGI(TAG, "Send receive queue fail.");
+    ESP_LOGW(TAG, "Send receive queue fail.");
     free(recv_cb->data);
   }
 }
@@ -238,7 +242,7 @@ void espnow_tick() {
               repeat_packet = true;
             } else if (seq_diff != 1 && recv_seq != 0) {
               if (recv_seq < last_recv_seq) {
-                ESP_LOGI(TAG, "Received stale packet: %u", recv_seq);
+                ESP_LOGW(TAG, "Received stale packet: %u", recv_seq);
               } else {
                 debug.missed_packet_count += seq_diff - 1;
               }
@@ -257,7 +261,7 @@ void espnow_tick() {
             repeat_packet = false;
           }
         } else {
-          ESP_LOGI(TAG, "Receive error data from: " MACSTR "",
+          ESP_LOGE(TAG, "Receive error data from: " MACSTR "",
                    MAC2STR(recv_cb->mac_addr));
         }
         free(recv_cb->data);
@@ -267,7 +271,9 @@ void espnow_tick() {
         ESP_LOGE(TAG, "Callback type error: %d", evt.id);
         break;
     }
+#if ESPNOW_LOGGING
     espnow_print_debug();
+#endif
   }
 }
 
@@ -290,7 +296,7 @@ void espnow_send() {
   esp_err_t err =
       esp_now_send(send_param->dest_mac, send_param->buffer, send_param->len);
   if (err != ESP_OK) {
-    ESP_LOGI(TAG, "ESP-Now Send Error: %s", esp_err_to_name(err));
+    ESP_LOGE(TAG, "ESP-Now Send Error: %s", esp_err_to_name(err));
     if (err != ESP_ERR_ESPNOW_NO_MEM) {
       espnow_deinit(send_param);
       vTaskDelete(NULL);

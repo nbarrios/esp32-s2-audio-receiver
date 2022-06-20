@@ -17,13 +17,17 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#ifdef CONFIG_USB_AUDIO_ENABLED
 #include "tinyusb.h"
-#include "sdkconfig.h"
-#include "math.h"
 #include "soc/usb_periph.h"
 #include "usb_audio_cb.h"
+#endif
+#include "es8388_i2c.h"
+#include "sdkconfig.h"
+#include "math.h"
 #include "war_wifi.h"
 #include "war_espnow.h"
+#include "war_i2s_audio.h"
 #include "driver/timer.h"
 
 static const char *TAG = "WAR Main";
@@ -42,6 +46,7 @@ void app_main(void)
     }
     ESP_ERROR_CHECK( ret );
 
+#ifdef CONFIG_USB_AUDIO_ENABLED
     //Sine Wave 440HZ
     double delta = 1.0 / (double)current_sample_rate;
     double freq = 440.0;
@@ -55,8 +60,14 @@ void app_main(void)
     tinyusb_config_t tusb_cfg = {}; // the configuration using default values
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
     ESP_LOGI(TAG, "USB initialization DONE");
-
     init_usb_audio_ringbuffer();
+#endif
+
     war_wifi_init();
     ESP_ERROR_CHECK( espnow_init(true) );
+
+#ifndef CONFIG_USB_AUDIO_ENABLED
+    es_i2c_init();
+    war_i2s_audio_init();
+#endif
 }
